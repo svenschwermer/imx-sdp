@@ -1,7 +1,6 @@
 #include "stages.h"
 #include "config.h"
 #include "sdp.h"
-#include "steps.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -14,20 +13,15 @@
 #include <unistd.h>
 #endif
 
-struct stage
+struct sdp_stage_
 {
     uint16_t usb_vid;
     uint16_t usb_pid;
     sdp_step *steps;
+    struct sdp_stage_ *next;
 };
 
-struct sdp_stages_
-{
-    int count;
-    struct stage stages[0];
-};
-
-static int parse_stage(char *const s, struct stage *stage)
+static int parse_stage(char *const s, struct sdp_stage_ *stage)
 {
     char *saveptr = NULL;
     char *tok = strtok_r(s, ",", &saveptr);
@@ -72,19 +66,33 @@ static int parse_stage(char *const s, struct stage *stage)
     return 0;
 }
 
+// Parse stages from command line arguments
 sdp_stages *sdp_parse_stages(int count, char *s[])
 {
-    sdp_stages *stages = calloc(1, sizeof(sdp_stages) + count * sizeof(struct stage));
-    if (!stages)
-    {
-        fprintf(stderr, "ERROR: Failed to allocate stages (count=%d): %s\n", count, strerror(errno));
-        return NULL;
-    }
-    stages->count = count;
+    sdp_stages *stages = NULL;
+    sdp_stages *last = NULL;
 
     for (int i = 0; i < count; ++i)
     {
-        if (parse_stage(s[i], stages->stages + i))
+        sdp_stages *stage = malloc(sizeof(struct sdp_stage_));
+        if (!stage)
+        {
+            fprintf(stderr, "ERROR: Failed to allocate stage %d\n", i + 1);
+            goto free_stages;
+        }
+
+        stage->steps = NULL;
+        stage->next = NULL;
+
+        if (last)
+        {
+            last->next = stage;
+            last = stage;
+        }
+        else
+            stages = last = stage;
+
+        if (parse_stage(s[i], stage))
         {
             fprintf(stderr, "ERROR: Failed to parse stage %d\n", i + 1);
             goto free_stages;
@@ -96,6 +104,69 @@ sdp_stages *sdp_parse_stages(int count, char *s[])
 free_stages:
     sdp_free_stages(stages);
     return NULL;
+}
+
+static int parse_uint16(const char *s, uint16_t *value)
+{
+	char *end;
+	unsigned long ul = strtoul(s, &end, 16);
+	if (s == end || ul > UINT16_MAX)
+		return -1;
+	*value = (uint16_t)ul;
+	return 0;
+}
+
+// Upon success, takes ownership of steps
+sdp_stages *sdp_new_stage(const char *vid, const char *pid, sdp_step *steps)
+{
+	if (!vid || !pid)
+	{
+		fprintf(stderr, "ERROR: Stage VIP/PID unset\n");
+		return NULL;
+	}
+	if (!steps)
+	{
+		fprintf(stderr, "ERROR: Steps unset\n");
+		return NULL;
+	}
+
+    sdp_stages *stage = malloc(sizeof(struct sdp_stage_));
+    if (!stage)
+    {
+        fprintf(stderr, "ERROR: Failed to allocate stage\n");
+        return NULL;
+    }
+    stage->steps = steps;
+    stage->next = NULL;
+
+    if (parse_uint16(vid, &stage->usb_vid))
+    {
+        fprintf(stderr, "ERROR: Invalid VID value\n");
+        goto free_stage;
+    }
+    if (parse_uint16(pid, &stage->usb_pid))
+    {
+        fprintf(stderr, "ERROR: Invalid PID value\n");
+        goto free_stage;
+    }
+
+    return stage;
+
+free_stage:
+    free(stage);
+    return NULL;
+}
+
+sdp_stages *sdp_append_stage(sdp_stages *list, sdp_stages *stage)
+{
+    if (!list)
+		return stage;
+
+	sdp_stages *it = list;
+	while (it->next)
+		it = it->next;
+	it->next = stage;
+	return list;
 }
 
 #ifdef WITH_UDEV
@@ -177,6 +248,7 @@ static hid_device *open_device(uint16_t vid, uint16_t pid, const char *usb_path,
             goto free_udev;
         }
         result = hid_open_path(devpath);
+        free((void *)devpath);
         if (!result)
             fprintf(stderr, "ERROR: Failed to open device: %ls\n", hid_error(result));
 #else
@@ -203,10 +275,10 @@ int sdp_execute_stages(sdp_stages *stages, bool initial_wait, const char *usb_pa
     if (res)
         fprintf(stderr, "ERROR: hidapi init failed\n");
 
-    for (int i = 0; !res && i < stages->count; ++i)
+    int i = 0;
+    for (struct sdp_stage_ *stage = stages; !res && stage; stage = stage->next, i++)
     {
-        struct stage *stage = stages->stages + i;
-        printf("[Stage %d/%d] VID=0x%04x PID=0x%04x\n", i + 1, stages->count, stage->usb_vid, stage->usb_pid);
+        printf("[Stage %d] VID=0x%04x PID=0x%04x\n", i + 1, stage->usb_vid, stage->usb_pid);
 
         bool wait = initial_wait || (i > 0);
         hid_device *handle = open_device(stage->usb_vid, stage->usb_pid, usb_path, wait);
@@ -241,15 +313,11 @@ int sdp_execute_stages(sdp_stages *stages, bool initial_wait, const char *usb_pa
 
 void sdp_free_stages(sdp_stages *stages)
 {
-    for (int i = 0; i < stages->count; ++i)
-    {
-        sdp_step *s = stages->stages[i].steps;
-        while (s)
-        {
-            void *const to_be_freed = s;
-            s = sdp_next_step(s);
-            free(to_be_freed);
-        }
-    }
-    free(stages);
+    while (stages)
+	{
+        sdp_free_steps(stages->steps);		
+        void *const to_be_freed = stages;
+		stages = stages->next;
+		free(to_be_freed);
+	}
 }

@@ -11,27 +11,58 @@ following design goals:
 
 ## Invocation
 
-    Usage: imx-sdp [OPTION]... <STAGE>...
+```
+Usage: build/imx-sdp [OPTION...] [STAGE...]
 
-    The following OPTIONs are available:
+The following OPTIONs are available:
 
-    -h, --help  print this usage message
-    -p, --path  specify the USB device path, e.g. 3-1.1
-    -V, --version  print version
-    -w, --wait  wait for the first stage
+  -C, --directory  change working directory, after spec is read
+  -h, --help  print this usage message
+  -p, --path  specify the USB device path, e.g. 3-1.1
+  -s, --spec  stage/step spec file
+  -V, --version  print version
+  -w, --wait  wait for the first stage
 
-    The STAGEs have the following format:
+The STAGEs have the following format:
 
-    <VID>:<PID>[,<STEP>...]
-        VID  USB Vendor ID as 4-digit hex number
-        PID  USB Product ID as 4-digit hex number
+  <VID>:<PID>[,<STEP>...]
+    VID  USB Vendor ID as 4-digit hex number
+    PID  USB Product ID as 4-digit hex number
 
-    The STEPs can be one of the following operations:
+The STEPs can be one of the following operations:
 
-    write_file:<FILE>:<ADDRESS>
-        Write the contents of FILE to ADDRESS
-    jump_address:<ADDRESS>
-        Jump to the IMX image located at ADDRESS
+  write_file:<FILE>:<ADDRESS>
+    Write the contents of FILE to ADDRESS
+  jump_address:<ADDRESS>
+    Jump to the IMX image located at ADDRESS
+
+Instead of specifying the stages and steps on the command line, they can be
+specified in a YAML file instead (--spec option). Note, that providing the spec
+on the command line and in a file are mutually exclusive.
+```
+
+## Spec format
+
+```yaml
+usb_path: 3-1.1
+stages:
+  - vid: 0x15a2
+    pid: 0x0080
+    steps:
+      - op: write_file
+        file: SPL
+        address: 0x00907400
+      - op: jump_address
+        address: 0x00907400
+  - vid: 0x1b67
+    pid: 0x5ffe
+    steps:
+      - op: write_file
+        file: u-boot.img
+        address: 0x877fffc0
+      - op: jump_address
+        address: 0x877fffc0
+```
 
 ### Example invocation
 

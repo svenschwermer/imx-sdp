@@ -91,8 +91,7 @@ char *sdp_udev_wait(sdp_udev *udev, uint16_t vid, uint16_t pid, const char *usb_
             goto unref_dev;
 
         // got the device path to our device, return a copy
-        result = malloc(strlen(devnode) + 1);
-        strcpy(result, devnode);
+        result = strdup(devnode);
 
     unref_dev:
         udev_device_unref(dev);

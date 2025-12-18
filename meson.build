@@ -6,12 +6,14 @@ project('imx-sdp', 'c',
 
 libudev = dependency('libudev', required: get_option('udev'))
 hidapi = dependency('hidapi-hidraw')
+yaml = dependency('yaml-0.1')
 
 src = files(
     'main.c',
     'sdp.c',
     'stages.c',
     'steps.c',
+    'spec.c',
 )
 
 cfg = configuration_data()
@@ -26,6 +28,6 @@ configure_file(input: 'config.h.in', output: 'config.h', configuration: cfg)
 cfg_inc = include_directories('.')
 
 executable('imx-sdp', src,
-    dependencies: [libudev, hidapi],
+    dependencies: [libudev, hidapi, yaml],
     include_directories: cfg_inc,
 )

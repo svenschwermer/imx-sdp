@@ -74,10 +74,15 @@ sdp_step *sdp_parse_step(char *s)
 			goto free_result;
 		}
 		result->exec = exec_write_file;
-		result->data.write_file.file_path = file_path;
 		if (parse_uint32(address, &result->data.write_file.address))
 		{
 			fprintf(stderr, "ERROR: Invalid write_file address\n");
+			goto free_result;
+		}
+		result->data.write_file.file_path = strdup(file_path);
+		if (!result->data.write_file.file_path)
+		{
+			fprintf(stderr, "ERROR: Failed to allocate file path\n");
 			goto free_result;
 		}
 	}
@@ -107,6 +112,93 @@ sdp_step *sdp_parse_step(char *s)
 free_result:
 	free(result);
 	return NULL;
+}
+
+sdp_step *sdp_new_step(const char *op, const char *file_path, const char *address)
+{
+	if (!op)
+	{
+		fprintf(stderr, "ERROR: Step operation unset\n");
+		return NULL;
+	}
+
+	sdp_step *result = malloc(sizeof(sdp_step));
+	if (!result)
+	{
+		fprintf(stderr, "ERROR: Allocation failed\n");
+		return NULL;
+	}
+	result->next = NULL;
+
+	if (!strcmp(op, "write_file"))
+	{
+		if (!file_path || !address)
+		{
+			fprintf(stderr, "ERROR: Invalid write_file step\n");
+			goto free_result;
+		}
+		result->exec = exec_write_file;
+		if (parse_uint32(address, &result->data.write_file.address))
+		{
+			fprintf(stderr, "ERROR: Invalid write_file address\n");
+			goto free_result;
+		}
+		result->data.write_file.file_path = strdup(file_path);
+		if (!result->data.write_file.file_path)
+		{
+			fprintf(stderr, "ERROR: Failed to allocate file path\n");
+			goto free_result;
+		}
+	}
+	else if (!strcmp(op, "jump_address"))
+	{
+		if (!address)
+		{
+			fprintf(stderr, "ERROR: Invalid jump_address step\n");
+			goto free_result;
+		}
+		result->exec = exec_jump_address;
+		if (parse_uint32(address, &result->data.jump_address.address))
+		{
+			fprintf(stderr, "ERROR: Invalid jump_address address\n");
+			goto free_result;
+		}
+	}
+	else
+	{
+		fprintf(stderr, "ERROR: Unknown step command \"%s\"\n", op);
+		goto free_result;
+	}
+
+	return result;
+
+free_result:
+	free(result);
+	return NULL;
+}
+
+sdp_step *sdp_append_step(sdp_step *list, sdp_step *step)
+{
+	if (!list)
+		return step;
+
+	sdp_step *it = list;
+	while (it->next)
+		it = it->next;
+	it->next = step;
+	return list;
+}
+
+void sdp_free_steps(sdp_step *steps)
+{
+	while (steps)
+	{
+		if (steps->exec == exec_write_file)
+			free((void *)steps->data.write_file.file_path);
+		void *const to_be_freed = steps;
+		steps = steps->next;
+		free(to_be_freed);
+	}
 }
 
 int sdp_execute_steps(hid_device *handle, sdp_step *step)
